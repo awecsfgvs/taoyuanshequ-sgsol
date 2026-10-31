@@ -65,8 +65,18 @@ def call(s, path, params=None, method="GET", body=None, signed=True, timeout=20)
 
 
 def load_token():
+    if not os.path.exists(CONFIG):
+        raise SystemExit(
+            "[!] 缺少 config.json —— 先执行: copy config.example.json config.json\n"
+            "    然后把小程序登录态 JWT 填进 token 字段（见 README「怎么拿 token」）")
     with open(CONFIG, encoding="utf-8") as f:
-        return json.load(f)["token"]
+        try:
+            token = (json.load(f) or {}).get("token") or ""
+        except ValueError:
+            raise SystemExit("[!] config.json 不是合法 JSON")
+    if not str(token).strip():
+        raise SystemExit("[!] config.json 的 token 字段是空的")
+    return str(token).strip()
 
 
 if __name__ == "__main__":
