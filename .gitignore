@@ -1,0 +1,21 @@
+# 登录态与运行产物——绝不入库
+config.json
+*.log
+*.out
+daily_done.json
+claimed.json
+health.log
+clock.jsonl
+clock.flows
+run_daily.out
+claim.out
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 抓包产物
+*.flows
+*.jsonl

@@ -1,0 +1,6 @@
+{
+  "token": "在此填入小程序登录态 JWT（请求头 authorization 的值）",
+  "uid": 0,
+  "exp": 0,
+  "captured_at": ""
+}
