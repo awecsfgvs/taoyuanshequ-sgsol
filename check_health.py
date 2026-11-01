@@ -87,7 +87,17 @@ def probe():
         sys.path.insert(0, HERE)
         from tyapi import make_session, call, load_token
         s = make_session(load_token())
-        ci = call(s, "/v1/user/clock/info")
+        last = None
+        for attempt in range(3):
+            try:
+                ci = call(s, "/v1/user/clock/info")
+                break
+            except Exception as e:      # SSL/连接抖动：重试，别误报
+                last = e
+                time.sleep(5)
+        else:
+            problems.append(f"接口探测异常: {last}")
+            return say("FAIL", f"接口探测异常（重试 3 次）: {last}")
         if ci.get("code") != 0:
             problems.append(f"接口探测失败 code={ci.get('code')}")
             return say("FAIL", f"接口探测失败 code={ci.get('code')} msg={ci.get('msg')}")
