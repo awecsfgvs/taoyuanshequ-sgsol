@@ -1,7 +1,7 @@
 ﻿$ErrorActionPreference = 'Continue'
 # 桃园社区 token 续期：本脚本必须管理员运行
 # 流程：解析真实IP -> 劫持hosts -> MITM反向代理 -> 强制微信小程序重连 -> 抓 /v1/wx/login -> 写回 config.json -> 还原
-$Root = $PSScriptRoot
+$Root = 'D:\ty_scan'
 $log  = Join-Path $Root 'refresh.log'
 function W($m) { $t = "$(Get-Date -Format 'HH:mm:ss') $m"; Write-Host $t; Add-Content -Path $log -Value $t -Encoding UTF8 }
 
@@ -28,15 +28,8 @@ if ($orig -notmatch 'olwxbbs\.sanguosha\.com') {
 ipconfig /flushdns | Out-Null
 
 # 3) 起 mitmproxy
-$py3 = (Get-Command mitmdump -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)
-if (-not $py3) {
-    foreach ($c in @(
-        (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python313\Scripts\mitmdump.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\Scripts\mitmdump.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Python\pythoncore-3.14-64\Scripts\mitmdump.exe')
-    )) { if (Test-Path $c) { $py3 = $c; break } }
-}
-if (-not $py3) { W "!! 找不到 mitmdump，请先 pip install mitmproxy"; exit 5 }
+$py3 = 'C:\Users\Administrator\AppData\Local\Programs\Python\Python313\Scripts\mitmdump.exe'
+if (-not (Test-Path $py3)) { $py3 = 'C:\Users\Administrator\AppData\Local\Python\pythoncore-3.14-64\Scripts\mitmdump.exe' }
 Get-NetTCPConnection -LocalPort 443 -State Listen -EA SilentlyContinue | ForEach-Object { try { Stop-Process -Id $_.OwningProcess -Force } catch {} }
 Start-Sleep -Seconds 1
 Remove-Item (Join-Path $Root 'clock.jsonl') -EA SilentlyContinue
@@ -58,14 +51,19 @@ W "killed WeChatAppEx x$n —— 请把桃园小程序重新打开（进任意�
 
 # 5) 等待 login 响应
 $jsonl = Join-Path $Root 'clock.jsonl'
+$picker = Join-Path $Root 'pick_token.py'
+$pyExe = (Get-Command python -EA SilentlyContinue).Source
+if (-not $pyExe) { $pyExe = (Get-Command py -EA SilentlyContinue).Source }
+if (-not $pyExe) { $pyExe = 'python' }
 $deadline = (Get-Date).AddSeconds(180)
 $token = $null
 while ((Get-Date) -lt $deadline) {
     Start-Sleep -Seconds 3
     if (Test-Path $jsonl) {
-        $hit = Select-String -Path $jsonl -Pattern '"token"\s*:\s*"(eyJ[^"]+)"' -Encoding UTF8 -EA SilentlyContinue |
-               Select-Object -Last 1
-        if ($hit -and $hit.Matches.Count -gt 0) { $token = $hit.Matches[0].Groups[1].Value; break }
+        # 用 python 解析 jsonl：响应体里的引号被 json 转义过，正则扫原文匹配不到
+        $out = & $pyExe $picker 2>$null
+        if ($out) { $out = ($out | Out-String).Trim() }
+        if ($out -and $out.StartsWith('eyJ')) { $token = $out; break }
     }
 }
 
