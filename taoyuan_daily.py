@@ -31,6 +31,20 @@ LIKE_TARGET = 5
 VIEW_TARGET = 5
 
 
+class LoginExpired(Exception):
+    """token 过期或被判失效：服务端统一回 code=-401 / 201002「登录失效」。"""
+
+
+def _auth_fail(resp) -> str:
+    """命中登录失效时返回提示文本，否则返回空串。"""
+    if not isinstance(resp, dict):
+        return ""
+    msg = str(resp.get("msg") or "")
+    if resp.get("code") in (-401, 401, 201002) or "登录失效" in msg:
+        return msg or f"code={resp.get('code')}"
+    return ""
+
+
 def _load_claimed() -> dict:
     try:
         with open(CLAIMED, encoding="utf-8") as f:
@@ -60,6 +74,9 @@ def log(msg: str) -> None:
 def do_clock(s) -> None:
     info = call(s, "/v1/user/clock/info")
     if info.get("code") != 0:
+        why = _auth_fail(info)
+        if why:
+            raise LoginExpired(why)
         log(f"[!] 签到状态查询失败: {info.get('msg')}")
         return
     d = info.get("data") or {}
@@ -73,12 +90,18 @@ def do_clock(s) -> None:
     elif "已签" in str(res.get("msg") or ""):
         log("[=] 服务端回今日已签到")
     else:
+        why = _auth_fail(res)
+        if why:
+            raise LoginExpired(why)
         log(f"[!] 签到失败: {res.get('msg')}")
     time.sleep(1)
 
 
 def do_likes(s) -> int:
     r = call(s, "/v1/thread/recommend", {"page": 1, "sort": 0})
+    why = _auth_fail(r)
+    if why:
+        raise LoginExpired(why)
     lst = ((r.get("data") or {}).get("list")) or []
     if not lst:
         log("[!] 拿不到帖子列表")
@@ -95,6 +118,9 @@ def do_likes(s) -> int:
             n += 1
             log(f"[+] 点赞 tid={tid} {str(it.get('title'))[:24]}")
         else:
+            why = _auth_fail(res)
+            if why:
+                raise LoginExpired(why)
             log(f"[!] 点赞 tid={tid} 失败: {res.get('msg')}")
         time.sleep(1)
     return n
@@ -119,6 +145,9 @@ def do_views(s) -> int:
 def do_claims(s) -> int:
     rt = call(s, "/v1/user/task")
     if rt.get("code") != 0:
+        why = _auth_fail(rt)
+        if why:
+            raise LoginExpired(why)
         log(f"[!] 任务列表失败: {rt.get('msg')}")
         return 0
     d = rt.get("data") or {}
@@ -187,18 +216,36 @@ def main() -> int:
     if "--force" not in sys.argv and _already_done(today):
         log(f"[=] {today} 已经跑过了，跳过（要重跑加 --force）")
         return 0
+
+    # 本地先看 exp：过期就别白跑一趟，也别把当天标成已完成
+    exp = 0
+    try:
+        with open(os.path.join(HERE, "config.json"), encoding="utf-8") as f:
+            exp = int((json.load(f) or {}).get("exp") or 0)
+    except Exception:
+        pass
+    if exp and exp < int(time.time()):
+        log(f"[!] token 已于 {datetime.fromtimestamp(exp):%Y-%m-%d %H:%M} 过期，"
+            f"本次不执行——先双击 续期token.bat 再重跑")
+        return 2
+
     s = make_session(load_token())
     log("=" * 50)
     log("开始每日任务")
-    do_clock(s)
-    n_like = do_likes(s)
-    n_view = do_views(s)
-    log(f"[*] 本轮 点赞 {n_like} / 浏览 {n_view}")
-    time.sleep(2)
-    n_claim = do_claims(s)
-    log(f"[*] 领取任务奖励 {n_claim} 个")
-    time.sleep(1)
-    summary(s)
+    try:
+        do_clock(s)
+        n_like = do_likes(s)
+        n_view = do_views(s)
+        log(f"[*] 本轮 点赞 {n_like} / 浏览 {n_view}")
+        time.sleep(2)
+        n_claim = do_claims(s)
+        log(f"[*] 领取任务奖励 {n_claim} 个")
+        time.sleep(1)
+        summary(s)
+    except LoginExpired as e:
+        log(f"[!] 登录失效：{e}")
+        log("[!] 本次未完成，且**没有**标记当日已完成——续期后当天重跑就能补上")
+        return 3
     _mark_done(today)
     log("完成")
     return 0
