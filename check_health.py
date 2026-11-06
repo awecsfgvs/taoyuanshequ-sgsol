@@ -75,7 +75,8 @@ def check_log():
     print("    最近日志:")
     for x in tail:
         print("      " + x)
-    bad = [x for x in tail if "[!]" in x]
+    bad = [x for x in tail
+           if "[!]" in x and "token 已于" not in x]   # 过期预检不算真报错，上面已单独 FAIL
     if bad:
         problems.append("最近日志里有 [!] 报错")
         return say("WARN", f"最近日志出现 {len(bad)} 条 [!] 报错")
